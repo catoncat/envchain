@@ -105,19 +105,20 @@ HUBOT_HIPCHAT_PASSWORD: xxxx
 
 ### macOS: Use a dedicated keychain (optional)
 
-On macOS, you can target a specific keychain file with `--keychain` (or
-`ENVCHAIN_KEYCHAIN`). This lets you isolate a namespace operationally, for
-example by using a keychain with a shorter auto-lock timeout.
+On macOS, you can target a specific keychain file with `--keychain`. This lets
+you isolate a namespace operationally, for example by using a keychain with a
+shorter auto-lock timeout.
 
 ```
 $ envchain --keychain ~/Library/Keychains/mom.keychain-db --set mom ADMIN_PASSWORD
 $ envchain --keychain ~/Library/Keychains/mom.keychain-db mom env | grep ADMIN_PASSWORD
 ```
 
-Equivalent via environment variable:
+If you need to read from environment variable, enable it explicitly with
+`--keychain-from-env`:
 
 ```
-$ ENVCHAIN_KEYCHAIN=~/Library/Keychains/mom.keychain-db envchain mom env
+$ ENVCHAIN_KEYCHAIN=~/Library/Keychains/mom.keychain-db envchain --keychain-from-env mom env
 ```
 
 ### More options
@@ -160,6 +161,15 @@ This option applies to all modes (`--set`, `--list`, `--unset`, and exec).
 ```
 $ envchain --keychain ~/Library/Keychains/mom.keychain-db --list
 $ envchain --keychain ~/Library/Keychains/mom.keychain-db mom my-command
+```
+
+#### `--keychain-from-env` (macOS only)
+
+Use keychain path from `ENVCHAIN_KEYCHAIN`. This is opt-in and disabled by
+default.
+
+```
+$ ENVCHAIN_KEYCHAIN=~/Library/Keychains/mom.keychain-db envchain --keychain-from-env mom my-command
 ```
 
 ## Sponsor

@@ -125,7 +125,7 @@ envchain_self_trusted_app_list(void)
 {
   char* selfpath = envchain_get_self_path();
   OSStatus status;
-  SecTrustedApplicationRef app;
+  SecTrustedApplicationRef app = NULL;
   CFArrayRef list = NULL;
 
   status = SecTrustedApplicationCreateFromPath(selfpath, &app);
@@ -256,6 +256,7 @@ int
 envchain_search_namespaces(envchain_namespace_search_callback callback, void *data)
 {
   OSStatus status;
+  int result = 0;
   CFArrayRef items = NULL;
   CFStringRef description = CFStringCreateWithCString(NULL, ENVCHAIN_ITEM_DESCRIPTION, kCFStringEncodingUTF8);
   CFArrayRef search_list = NULL;
@@ -281,7 +282,7 @@ envchain_search_namespaces(envchain_namespace_search_callback callback, void *da
   if (status != errSecItemNotFound && status != noErr) goto fail;
 
   if (status == errSecItemNotFound || CFArrayGetCount(items) == 0) {
-    return 0;
+    goto fail;
   }
   
   char** names = malloc(sizeof(char*) * CFArrayGetCount(items));
@@ -313,15 +314,16 @@ fail:
   if (search_list != NULL) CFRelease(search_list);
   if (query != NULL) CFRelease(query);
   if (description != NULL) CFRelease(description);
-  if (status != noErr) envchain_fail_osstatus(status);
+  if (status != noErr && status != errSecItemNotFound) envchain_fail_osstatus(status);
 
-  return 0;
+  return result;
 }
 
 int
 envchain_search_values(const char *name, envchain_search_callback callback, void *data)
 {
   OSStatus status;
+  int result = 0;
   CFStringRef service_name = envchain_generate_service_name_cf(name);
   CFArrayRef items = NULL;
   CFArrayRef search_list = NULL;
@@ -352,7 +354,8 @@ envchain_search_values(const char *name, envchain_search_callback callback, void
       "         You can set via running `%s --set %s SOME_ENV_NAME`.\n\n",
       name, envchain_name, name
     );
-    return 1;
+    result = 1;
+    goto fail;
   }
   
   envchain_search_values_applier_data context = {callback, NULL, data};
@@ -366,9 +369,9 @@ fail:
   if (search_list != NULL) CFRelease(search_list);
   if (query != NULL) CFRelease(query);
   if (service_name != NULL) CFRelease(service_name);
-  if (status != noErr) envchain_fail_osstatus(status);
+  if (status != noErr && status != errSecItemNotFound) envchain_fail_osstatus(status);
 
-  return 0;
+  return result;
 }
 
 static int

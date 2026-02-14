@@ -52,7 +52,7 @@ envchain_abort_with_help(void)
     "%s version %s\n\n"
     "Usage:\n"
     "  Global options\n"
-    "    %s [--keychain PATH] ...\n"
+    "    %s [--keychain PATH|--keychain-from-env] ...\n"
     "\n"
     "  Add variables\n"
     "    %s (--set|-s) [--[no-]require-passphrase|-p|-P] [--noecho|-n] NAMESPACE ENV [ENV ..]\n"
@@ -66,7 +66,9 @@ envchain_abort_with_help(void)
     "Options:\n"
     "  --keychain:\n"
     "    Use a specific macOS keychain file instead of default search list.\n"
-    "    You may also set ENVCHAIN_KEYCHAIN.\n"
+    "\n"
+    "  --keychain-from-env:\n"
+    "    Read keychain path from ENVCHAIN_KEYCHAIN (disabled by default for safety).\n"
     "\n"
     "  --set (-s):\n"
     "    Add keychain item of environment variable +ENV+ for namespace +NAMESPACE+.\n"
@@ -311,12 +313,12 @@ int
 main(int argc, const char **argv)
 {
   const char *keychain_target = NULL;
+  int use_keychain_from_env = 0;
 
   envchain_name = argv[0];
   if (argc < 2) envchain_abort_with_help();
   argv++; argc--;
 
-  keychain_target = getenv("ENVCHAIN_KEYCHAIN");
   while (0 < argc) {
     if (strcmp(argv[0], "--keychain") == 0) {
       argv++; argc--;
@@ -327,9 +329,17 @@ main(int argc, const char **argv)
       keychain_target = argv[0];
       argv++; argc--;
     }
+    else if (strcmp(argv[0], "--keychain-from-env") == 0) {
+      use_keychain_from_env = 1;
+      argv++; argc--;
+    }
     else {
       break;
     }
+  }
+
+  if (keychain_target == NULL && use_keychain_from_env) {
+    keychain_target = getenv("ENVCHAIN_KEYCHAIN");
   }
 
   if (envchain_set_keychain(keychain_target) != 0) {

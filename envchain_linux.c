@@ -5,7 +5,7 @@
 int envchain_set_keychain(const char *target) {
   if (target != NULL && target[0] != '\0') {
     fprintf(stderr,
-            "%s: `--keychain` and ENVCHAIN_KEYCHAIN are unsupported on this platform\n",
+            "%s: `--keychain` / `--keychain-from-env` are unsupported on this platform\n",
             envchain_name);
     return 1;
   }
