@@ -51,6 +51,9 @@ envchain_abort_with_help(void)
     stderr,
     "%s version %s\n\n"
     "Usage:\n"
+    "  Global options\n"
+    "    %s [--keychain PATH] ...\n"
+    "\n"
     "  Add variables\n"
     "    %s (--set|-s) [--[no-]require-passphrase|-p|-P] [--noecho|-n] NAMESPACE ENV [ENV ..]\n"
     "  Execute with variables\n"
@@ -61,6 +64,10 @@ envchain_abort_with_help(void)
     "    %s --unset NAMESPACE ENV [ENV ..]\n"
     "\n"
     "Options:\n"
+    "  --keychain:\n"
+    "    Use a specific macOS keychain file instead of default search list.\n"
+    "    You may also set ENVCHAIN_KEYCHAIN.\n"
+    "\n"
     "  --set (-s):\n"
     "    Add keychain item of environment variable +ENV+ for namespace +NAMESPACE+.\n"
     "\n"
@@ -71,7 +78,7 @@ envchain_abort_with_help(void)
     "    Replace the item's ACL list to require passphrase (or not).\n"
     "    Leave as is when both options are omitted.\n"
     ,
-    envchain_name, version, envchain_name, envchain_name, envchain_name, envchain_name
+    envchain_name, version, envchain_name, envchain_name, envchain_name, envchain_name, envchain_name
   );
   exit(2);
 }
@@ -303,9 +310,33 @@ envchain_exec(int argc, const char **argv)
 int
 main(int argc, const char **argv)
 {
+  const char *keychain_target = NULL;
+
   envchain_name = argv[0];
   if (argc < 2) envchain_abort_with_help();
   argv++; argc--;
+
+  keychain_target = getenv("ENVCHAIN_KEYCHAIN");
+  while (0 < argc) {
+    if (strcmp(argv[0], "--keychain") == 0) {
+      argv++; argc--;
+      if (argc < 1) {
+        fprintf(stderr, "Missing argument for --keychain\n");
+        return 2;
+      }
+      keychain_target = argv[0];
+      argv++; argc--;
+    }
+    else {
+      break;
+    }
+  }
+
+  if (envchain_set_keychain(keychain_target) != 0) {
+    return 1;
+  }
+
+  if (argc < 1) envchain_abort_with_help();
 
   if (strcmp(argv[0], "--set") == 0 || strcmp(argv[0], "-s") == 0) {
     argv++; argc--;

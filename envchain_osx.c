@@ -23,6 +23,31 @@ typedef struct {
   void *data;
 } envchain_search_namespaces_context;
 
+static void envchain_fail_osstatus(OSStatus status);
+
+int
+envchain_set_keychain(const char *target)
+{
+  OSStatus status;
+
+  if (envchain_keychain != NULL) {
+    CFRelease(envchain_keychain);
+    envchain_keychain = NULL;
+  }
+
+  if (target == NULL || target[0] == '\0') {
+    return 0;
+  }
+
+  status = SecKeychainOpen(target, &envchain_keychain);
+  if (status != noErr) {
+    fprintf(stderr, "%s: failed to open keychain `%s`\n", envchain_name, target);
+    envchain_fail_osstatus(status);
+  }
+
+  return 0;
+}
+
 /* misc */
 
 static int
@@ -233,19 +258,24 @@ envchain_search_namespaces(envchain_namespace_search_callback callback, void *da
   OSStatus status;
   CFArrayRef items = NULL;
   CFStringRef description = CFStringCreateWithCString(NULL, ENVCHAIN_ITEM_DESCRIPTION, kCFStringEncodingUTF8);
+  CFArrayRef search_list = NULL;
+  CFMutableDictionaryRef query = NULL;
 
-  const void *query_keys[] = {
-    kSecClass, kSecAttrDescription,
-    kSecReturnRef, kSecMatchLimit
-  };
-  const void *query_vals[] = {
-    kSecClassGenericPassword, description,
-    kCFBooleanTrue, kSecMatchLimitAll
-  };
-
-  CFDictionaryRef query = CFDictionaryCreate(kCFAllocatorDefault,
-      query_keys, query_vals, sizeof(query_keys) / sizeof(query_keys[0]),
+  query = CFDictionaryCreateMutable(
+      kCFAllocatorDefault, 0,
       &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+  CFDictionarySetValue(query, kSecAttrDescription, description);
+  CFDictionarySetValue(query, kSecReturnRef, kCFBooleanTrue);
+  CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitAll);
+
+  if (envchain_keychain != NULL) {
+    const void *search_vals[] = {envchain_keychain};
+    search_list = CFArrayCreate(
+      NULL, search_vals, 1, &kCFTypeArrayCallBacks
+    );
+    CFDictionarySetValue(query, kSecMatchSearchList, search_list);
+  }
 
   status = SecItemCopyMatching(query, (CFTypeRef *)&items);
   if (status != errSecItemNotFound && status != noErr) goto fail;
@@ -280,6 +310,7 @@ envchain_search_namespaces(envchain_namespace_search_callback callback, void *da
 
 fail:
   if (items != NULL) CFRelease(items);
+  if (search_list != NULL) CFRelease(search_list);
   if (query != NULL) CFRelease(query);
   if (description != NULL) CFRelease(description);
   if (status != noErr) envchain_fail_osstatus(status);
@@ -293,19 +324,24 @@ envchain_search_values(const char *name, envchain_search_callback callback, void
   OSStatus status;
   CFStringRef service_name = envchain_generate_service_name_cf(name);
   CFArrayRef items = NULL;
+  CFArrayRef search_list = NULL;
+  CFMutableDictionaryRef query = NULL;
 
-  const void *query_keys[] = {
-    kSecClass, kSecAttrService,
-    kSecReturnRef, kSecMatchLimit
-  };
-  const void *query_vals[] = {
-    kSecClassGenericPassword, service_name,
-    kCFBooleanTrue, kSecMatchLimitAll
-  };
-
-  CFDictionaryRef query = CFDictionaryCreate(kCFAllocatorDefault,
-      query_keys, query_vals, sizeof(query_keys) / sizeof(query_keys[0]),
+  query = CFDictionaryCreateMutable(
+      kCFAllocatorDefault, 0,
       &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+  CFDictionarySetValue(query, kSecAttrService, service_name);
+  CFDictionarySetValue(query, kSecReturnRef, kCFBooleanTrue);
+  CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitAll);
+
+  if (envchain_keychain != NULL) {
+    const void *search_vals[] = {envchain_keychain};
+    search_list = CFArrayCreate(
+      NULL, search_vals, 1, &kCFTypeArrayCallBacks
+    );
+    CFDictionarySetValue(query, kSecMatchSearchList, search_list);
+  }
 
   status = SecItemCopyMatching(query, (CFTypeRef *)&items);
   if (status != errSecItemNotFound && status != noErr) goto fail;
@@ -327,6 +363,7 @@ envchain_search_values(const char *name, envchain_search_callback callback, void
 
 fail:
   if (items != NULL) CFRelease(items);
+  if (search_list != NULL) CFRelease(search_list);
   if (query != NULL) CFRelease(query);
   if (service_name != NULL) CFRelease(service_name);
   if (status != noErr) envchain_fail_osstatus(status);

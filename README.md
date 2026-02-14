@@ -103,6 +103,22 @@ AWS_SECRET_ACCESS_KEY=secret
 HUBOT_HIPCHAT_PASSWORD: xxxx
 ```
 
+### macOS: Use a dedicated keychain (optional)
+
+On macOS, you can target a specific keychain file with `--keychain` (or
+`ENVCHAIN_KEYCHAIN`). This lets you isolate a namespace operationally, for
+example by using a keychain with a shorter auto-lock timeout.
+
+```
+$ envchain --keychain ~/Library/Keychains/mom.keychain-db --set mom ADMIN_PASSWORD
+$ envchain --keychain ~/Library/Keychains/mom.keychain-db mom env | grep ADMIN_PASSWORD
+```
+
+Equivalent via environment variable:
+
+```
+$ ENVCHAIN_KEYCHAIN=~/Library/Keychains/mom.keychain-db envchain mom env
+```
 
 ### More options
 
@@ -134,6 +150,16 @@ $ envchain --set --require-passphrase name
 Do not ask for keychain passphrase
 ```
 $ envchain --set --no-require-passphrase name
+```
+
+#### `--keychain` (macOS only)
+
+Use a specific keychain file rather than the default keychain search list.
+This option applies to all modes (`--set`, `--list`, `--unset`, and exec).
+
+```
+$ envchain --keychain ~/Library/Keychains/mom.keychain-db --list
+$ envchain --keychain ~/Library/Keychains/mom.keychain-db mom my-command
 ```
 
 ## Sponsor

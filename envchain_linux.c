@@ -2,6 +2,16 @@
 #include <libsecret/secret.h>
 #include <stdio.h>
 
+int envchain_set_keychain(const char *target) {
+  if (target != NULL && target[0] != '\0') {
+    fprintf(stderr,
+            "%s: `--keychain` and ENVCHAIN_KEYCHAIN are unsupported on this platform\n",
+            envchain_name);
+    return 1;
+  }
+  return 0;
+}
+
 static const SecretSchema *envchain_get_schema(void) {
   static const SecretSchema the_schema = {
       .name = "envchain.EnvironmentVariable",
