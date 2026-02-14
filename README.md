@@ -73,6 +73,13 @@ $ envchain --set hubot HUBOT_HIPCHAT_PASSWORD
 hubot.HUBOT_HIPCHAT_PASSWORD: xxxx
 ```
 
+If you want to avoid repeated access prompts later, set with
+`--no-require-passphrase`:
+
+```
+$ envchain --set --no-require-passphrase mom ADMIN_PASSWORD
+```
+
 These will all appear as application passwords with `envchain-NAMESPACE` in the data store (Keychain in macOS, gnome-keyring in common Linux distros).
 
 ### Execute commands with defined variables
@@ -151,6 +158,15 @@ $ envchain --set --require-passphrase name
 Do not ask for keychain passphrase
 ```
 $ envchain --set --no-require-passphrase name
+```
+
+#### `--set-access`
+
+Update ACL policy of existing items without retyping values. Useful to reduce
+repeated prompts for an existing namespace:
+
+```
+$ envchain --set-access --no-require-passphrase mom AI_API_KEY OPENAI_API_KEY
 ```
 
 #### `--keychain` (macOS only)

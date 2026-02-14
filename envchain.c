@@ -56,6 +56,8 @@ envchain_abort_with_help(void)
     "\n"
     "  Add variables\n"
     "    %s (--set|-s) [--[no-]require-passphrase|-p|-P] [--noecho|-n] NAMESPACE ENV [ENV ..]\n"
+    "  Change access policy without retyping value\n"
+    "    %s --set-access [--require-passphrase|-p|--no-require-passphrase|-P] NAMESPACE ENV [ENV ..]\n"
     "  Execute with variables\n"
     "    %s NAMESPACE CMD [ARG ...]\n"
     "  List namespaces\n"
@@ -73,6 +75,10 @@ envchain_abort_with_help(void)
     "  --set (-s):\n"
     "    Add keychain item of environment variable +ENV+ for namespace +NAMESPACE+.\n"
     "\n"
+    "  --set-access:\n"
+    "    Update ACL policy of existing keys without modifying values.\n"
+    "    Must provide either -p or -P.\n"
+    "\n"
     "  --noecho (-n):\n"
     "    Enable noecho mode when prompting values. Requires stdin to be a terminal.\n"
     "\n"
@@ -80,7 +86,7 @@ envchain_abort_with_help(void)
     "    Replace the item's ACL list to require passphrase (or not).\n"
     "    Leave as is when both options are omitted.\n"
     ,
-    envchain_name, version, envchain_name, envchain_name, envchain_name, envchain_name, envchain_name
+    envchain_name, version, envchain_name, envchain_name, envchain_name, envchain_name, envchain_name, envchain_name
   );
   exit(2);
 }
@@ -267,6 +273,51 @@ envchain_unset(int argc, const char **argv)
   return 0;
 }
 
+/* functions for --set-access */
+
+int
+envchain_set_access(int argc, const char **argv)
+{
+  int require_passphrase = -1;
+  const char *name, *key;
+  int result = 0;
+
+  while (2 < argc) {
+    if (argv[0][0] != '-') break;
+
+    if (strcmp(argv[0], "-p") == 0 || strcmp(argv[0], "--require-passphrase") == 0) {
+      argv++; argc--;
+      require_passphrase = 1;
+    }
+    else if (strcmp(argv[0], "-P") == 0 || strcmp(argv[0], "--no-require-passphrase") == 0) {
+      argv++; argc--;
+      require_passphrase = 0;
+    }
+    else {
+      fprintf(stderr, "Unknown option: %s\n", argv[0]);
+      return 1;
+    }
+  }
+  if (argc < 2) envchain_abort_with_help();
+  if (require_passphrase < 0) {
+    fprintf(stderr, "--set-access requires either -p or -P\n");
+    return 2;
+  }
+
+  name = argv[0];
+  argv++; argc--;
+
+  while(0 < argc) {
+    key = argv[0];
+    argv++; argc--;
+    if (envchain_update_value_access(name, key, require_passphrase) != 0) {
+      result = 1;
+    }
+  }
+
+  return result;
+}
+
 /* functions for exec mode */
 
 static void
@@ -359,6 +410,10 @@ main(int argc, const char **argv)
   else if (strcmp(argv[0], "--unset") == 0) {
     argv++; argc--;
     return envchain_unset(argc, argv);
+  }
+  else if (strcmp(argv[0], "--set-access") == 0) {
+    argv++; argc--;
+    return envchain_set_access(argc, argv);
   }
   else if (argv[0][0] == '-') {
     fprintf(stderr, "Unknown option %s\n", argv[0]);

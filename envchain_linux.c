@@ -205,6 +205,17 @@ void envchain_save_value(const char *name, const char *key, char *value,
   }
 }
 
+int envchain_update_value_access(const char *name, const char *key,
+                                 int require_passphrase) {
+  (void)name;
+  (void)key;
+  (void)require_passphrase;
+  fprintf(stderr,
+          "%s: `--set-access' is unsupported on this platform\n",
+          envchain_name);
+  return 1;
+}
+
 void envchain_delete_value(const char *name, const char *key) {
   GError *error = NULL;
   secret_password_clear_sync(envchain_get_schema(), NULL, &error,

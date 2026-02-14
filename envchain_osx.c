@@ -96,11 +96,10 @@ envchain_generate_service_name_cf(const char *name)
 }
 
 static char*
-envchain_get_self_path(void)
+envchain_get_self_exec_path(void)
 {
   uint32_t pathlen = 0;
   char *selfpath = malloc(sizeof(char) * 255);
-  char *selfrealpath;
   if (_NSGetExecutablePath(selfpath, &pathlen) < 0) {
     selfpath = realloc(selfpath, sizeof(char) * pathlen);
     if (_NSGetExecutablePath(selfpath, &pathlen) < 0) {
@@ -109,13 +108,17 @@ envchain_get_self_path(void)
     }
   }
 
-  selfrealpath = realpath(selfpath, NULL);
+  return selfpath;
+}
+
+static char*
+envchain_get_real_path(const char *path)
+{
+  char *selfrealpath = realpath(path, NULL);
   if (selfrealpath == NULL) {
     fprintf(stderr, "Error during retrieve executable path of itself: %s\n", strerror(errno));
     exit(1);
   }
-
-  free(selfpath);
 
   return selfrealpath;
 }
@@ -123,19 +126,38 @@ envchain_get_self_path(void)
 static CFArrayRef
 envchain_self_trusted_app_list(void)
 {
-  char* selfpath = envchain_get_self_path();
+  char* selfexecpath = envchain_get_self_exec_path();
+  char* selfrealpath = envchain_get_real_path(selfexecpath);
   OSStatus status;
-  SecTrustedApplicationRef app = NULL;
+  SecTrustedApplicationRef app_exec = NULL;
+  SecTrustedApplicationRef app_real = NULL;
+  CFMutableArrayRef app_array = NULL;
   CFArrayRef list = NULL;
 
-  status = SecTrustedApplicationCreateFromPath(selfpath, &app);
-  if (status != noErr) goto fail;
+  app_array = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+  if (app_array == NULL) {
+    fprintf(stderr, "failed to allocate trusted app list\n");
+    exit(10);
+  }
 
-  SecTrustedApplicationRef apps[] = {app};
-  list = CFArrayCreate(NULL, (void*)apps, 1, &kCFTypeArrayCallBacks);
+  status = SecTrustedApplicationCreateFromPath(selfexecpath, &app_exec);
+  if (status != noErr) goto fail;
+  CFArrayAppendValue(app_array, app_exec);
+
+  if (strcmp(selfexecpath, selfrealpath) != 0) {
+    status = SecTrustedApplicationCreateFromPath(selfrealpath, &app_real);
+    if (status != noErr) goto fail;
+    CFArrayAppendValue(app_array, app_real);
+  }
+
+  list = CFArrayCreateCopy(NULL, app_array);
 
 fail:
-  if (app != NULL) CFRelease(app);
+  if (app_exec != NULL) CFRelease(app_exec);
+  if (app_real != NULL) CFRelease(app_real);
+  if (app_array != NULL) CFRelease(app_array);
+  if (selfexecpath != NULL) free(selfexecpath);
+  if (selfrealpath != NULL) free(selfrealpath);
   if (status != noErr) envchain_fail_osstatus(status);
 
   return list;
@@ -398,14 +420,67 @@ envchain_find_value(const char *name, const char *key, SecKeychainItemRef *ref)
   return status == errSecItemNotFound ? 0 : 1;
 }
 
+static int
+envchain_apply_item_access(SecKeychainItemRef ref, int require_passphrase)
+{
+  OSStatus status = noErr;
+  SecAccessRef access_ref = NULL;
+  CFArrayRef acl_list = NULL;
+  CFArrayRef app_list = NULL;
+  CFStringRef desc = NULL;
+
+  status = SecKeychainItemCopyAccess(ref, &access_ref);
+  if (status != noErr) goto fail;
+
+  acl_list = SecAccessCopyMatchingACLList(
+    access_ref, kSecACLAuthorizationDecrypt
+  );
+  SecACLRef acl = (SecACLRef)CFArrayGetValueAtIndex(acl_list, 0);
+
+  if (acl == NULL) {
+    fprintf(stderr, "error: There's no ACL?\n");
+    status = -1;
+    goto fail;
+  }
+
+  SecKeychainPromptSelector prompt;
+  status = SecACLCopyContents(acl, &app_list, &desc, &prompt);
+  if (status != noErr) goto fail;
+  if (app_list != NULL) {
+    CFRelease(app_list);
+    app_list = NULL;
+  }
+
+  if(require_passphrase == 1) {
+    if (prompt == 0) prompt = 0x100;
+    prompt |= kSecKeychainPromptRequirePassphase;
+    app_list = CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+  }
+  else {
+    prompt = 0;
+    app_list = envchain_self_trusted_app_list();
+  }
+
+  status = SecACLSetContents(acl, app_list, desc, prompt);
+  if (status != noErr) goto fail;
+
+  status = SecKeychainItemSetAccess(ref, access_ref);
+
+fail:
+  if (app_list != NULL) CFRelease(app_list);
+  if (desc != NULL) CFRelease(desc);
+  if (access_ref != NULL) CFRelease(access_ref);
+  if (acl_list != NULL) CFRelease(acl_list);
+  if (status != noErr) envchain_fail_osstatus(status);
+  return 0;
+}
+
 void
 envchain_save_value(const char *name, const char *key, char *value, int require_passphrase)
 {
   char *service_name = envchain_generate_service_name(name);
   OSStatus status;
   SecKeychainItemRef ref = NULL;
-  SecAccessRef access_ref = NULL;
-  CFArrayRef acl_list = nil;
 
   if (envchain_find_value(name, key, &ref) == 0) {
     status = SecKeychainAddGenericPassword(
@@ -441,55 +516,37 @@ envchain_save_value(const char *name, const char *key, char *value, int require_
   if (status != noErr) goto fail;
 
   if (require_passphrase >= 0) {
-    CFArrayRef app_list = NULL;
-    CFStringRef desc = NULL;
-
-    status = SecKeychainItemCopyAccess(ref, &access_ref);
-    if (status != noErr) goto fail;
-
-    acl_list = SecAccessCopyMatchingACLList(
-      access_ref, kSecACLAuthorizationDecrypt
-    );
-    SecACLRef acl = (SecACLRef)CFArrayGetValueAtIndex(acl_list, 0);
-
-    if (acl == NULL) {
-      fprintf(stderr, "error: There's no ACL?\n");
-      goto passfail;
-    }
-
-    SecKeychainPromptSelector prompt;
-    status = SecACLCopyContents(acl, &app_list, &desc, &prompt);
-    if (status != noErr) goto passfail;
-    if (app_list != NULL) CFRelease(app_list);
-
-    if(require_passphrase == 1) {
-      if (prompt == 0) prompt = 0x100;
-      prompt |= kSecKeychainPromptRequirePassphase;
-      app_list = CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
-    }
-    else {
-      prompt = 0;
-      app_list = envchain_self_trusted_app_list();
-    }
-
-    status = SecACLSetContents(acl, app_list, desc, prompt);
-    if (status != noErr) goto passfail;
-
-    status = SecKeychainItemSetAccess(ref, access_ref);
-
-passfail:
-    if (app_list != NULL) CFRelease(app_list);
-    if (desc != NULL) CFRelease(desc);
-    if (status != noErr) goto fail;
+    envchain_apply_item_access(ref, require_passphrase);
   }
 
 fail:
   if (ref != NULL) { CFRelease(ref); }
-  if (access_ref != NULL) { CFRelease(access_ref); }
-  if (acl_list != NULL) { CFRelease(acl_list); }
   if (status != noErr) envchain_fail_osstatus(status);
 
   return;
+}
+
+int
+envchain_update_value_access(const char *name, const char *key, int require_passphrase)
+{
+  SecKeychainItemRef ref = NULL;
+
+  if (require_passphrase < 0) {
+    fprintf(stderr, "require_passphrase must be 0 or 1\n");
+    return 1;
+  }
+
+  if (envchain_find_value(name, key, &ref) == 0) {
+    fprintf(stderr, "WARNING: key `%s.%s` not found\n", name, key);
+    return 1;
+  }
+
+  envchain_apply_item_access(ref, require_passphrase);
+
+  if (ref != NULL) {
+    CFRelease(ref);
+  }
+  return 0;
 }
 
 void
