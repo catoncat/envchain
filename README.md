@@ -128,6 +128,23 @@ If you need to read from environment variable, enable it explicitly with
 $ ENVCHAIN_KEYCHAIN=~/Library/Keychains/mom.keychain-db envchain --keychain-from-env mom env
 ```
 
+### macOS: Keep command unchanged with namespace keychain mapping
+
+If you want to keep using `envchain <namespace> ...` unchanged while isolating
+each namespace into its own keychain, set `ENVCHAIN_KEYCHAIN_DIR`.
+`envchain` will auto-select `DIR/<namespace>.keychain-db` when the file exists.
+
+```
+$ export ENVCHAIN_KEYCHAIN_DIR=~/Library/Keychains/envchain-scopes
+$ envchain mom env            # auto uses ~/Library/Keychains/envchain-scopes/mom.keychain-db
+```
+
+You can also pass it as a global option:
+
+```
+$ envchain --keychain-dir ~/Library/Keychains/envchain-scopes mom env
+```
+
 ### More options
 
 #### `--list`

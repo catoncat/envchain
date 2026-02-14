@@ -52,7 +52,7 @@ envchain_abort_with_help(void)
     "%s version %s\n\n"
     "Usage:\n"
     "  Global options\n"
-    "    %s [--keychain PATH|--keychain-from-env] ...\n"
+    "    %s [--keychain PATH|--keychain-from-env|--keychain-dir DIR] ...\n"
     "\n"
     "  Add variables\n"
     "    %s (--set|-s) [--[no-]require-passphrase|-p|-P] [--noecho|-n] NAMESPACE ENV [ENV ..]\n"
@@ -71,6 +71,10 @@ envchain_abort_with_help(void)
     "\n"
     "  --keychain-from-env:\n"
     "    Read keychain path from ENVCHAIN_KEYCHAIN (disabled by default for safety).\n"
+    "\n"
+    "  --keychain-dir:\n"
+    "    Auto-map namespace to DIR/<namespace>.keychain-db.\n"
+    "    Equivalent env var: ENVCHAIN_KEYCHAIN_DIR.\n"
     "\n"
     "  --set (-s):\n"
     "    Add keychain item of environment variable +ENV+ for namespace +NAMESPACE+.\n"
@@ -358,13 +362,75 @@ envchain_exec(int argc, const char **argv)
   return 0;
 }
 
+static char*
+envchain_namespace_from_argv(int argc, const char **argv)
+{
+  const char *cmd;
+  const char *ns = NULL;
+  int i;
+
+  if (argc < 1) return NULL;
+
+  cmd = argv[0];
+  if (strcmp(cmd, "--set") == 0 || strcmp(cmd, "-s") == 0 || strcmp(cmd, "--set-access") == 0) {
+    i = 1;
+    while (i < argc && argv[i][0] == '-') {
+      i++;
+    }
+    if (i < argc) ns = argv[i];
+  }
+  else if (strcmp(cmd, "--unset") == 0) {
+    if (1 < argc) ns = argv[1];
+  }
+  else if (strcmp(cmd, "--list") == 0 || strcmp(cmd, "-l") == 0) {
+    i = 1;
+    while (i < argc) {
+      if (strcmp(argv[i], "--show-value") == 0 || strcmp(argv[i], "-v") == 0) {
+        i++;
+        continue;
+      }
+      ns = argv[i];
+      break;
+    }
+  }
+  else if (cmd[0] != '-') {
+    /* exec mode: only auto-map when single namespace is specified */
+    if (strchr(cmd, ',') == NULL) ns = cmd;
+  }
+
+  if (ns == NULL || ns[0] == '\0') return NULL;
+  return strdup(ns);
+}
+
+static char*
+envchain_build_namespace_keychain_path(const char *dir, const char *ns)
+{
+  char *path = NULL;
+  asprintf(&path, "%s/%s.keychain-db", dir, ns);
+  if (path == NULL) {
+    fprintf(stderr, "Failed to generate keychain path\n");
+    exit(10);
+  }
+
+  if (access(path, F_OK) != 0) {
+    free(path);
+    return NULL;
+  }
+
+  return path;
+}
+
 /* entry point */
 
 int
 main(int argc, const char **argv)
 {
+  int rc = 0;
   const char *keychain_target = NULL;
+  const char *keychain_dir = NULL;
   int use_keychain_from_env = 0;
+  char *auto_keychain_target = NULL;
+  char *auto_namespace = NULL;
 
   envchain_name = argv[0];
   if (argc < 2) envchain_abort_with_help();
@@ -375,13 +441,24 @@ main(int argc, const char **argv)
       argv++; argc--;
       if (argc < 1) {
         fprintf(stderr, "Missing argument for --keychain\n");
-        return 2;
+        rc = 2;
+        goto cleanup;
       }
       keychain_target = argv[0];
       argv++; argc--;
     }
     else if (strcmp(argv[0], "--keychain-from-env") == 0) {
       use_keychain_from_env = 1;
+      argv++; argc--;
+    }
+    else if (strcmp(argv[0], "--keychain-dir") == 0) {
+      argv++; argc--;
+      if (argc < 1) {
+        fprintf(stderr, "Missing argument for --keychain-dir\n");
+        rc = 2;
+        goto cleanup;
+      }
+      keychain_dir = argv[0];
       argv++; argc--;
     }
     else {
@@ -392,34 +469,58 @@ main(int argc, const char **argv)
   if (keychain_target == NULL && use_keychain_from_env) {
     keychain_target = getenv("ENVCHAIN_KEYCHAIN");
   }
+  if (keychain_dir == NULL) {
+    keychain_dir = getenv("ENVCHAIN_KEYCHAIN_DIR");
+  }
+  if (keychain_target == NULL && keychain_dir != NULL && keychain_dir[0] != '\0') {
+    auto_namespace = envchain_namespace_from_argv(argc, argv);
+    if (auto_namespace != NULL) {
+      auto_keychain_target = envchain_build_namespace_keychain_path(keychain_dir, auto_namespace);
+      if (auto_keychain_target != NULL) {
+        keychain_target = auto_keychain_target;
+      }
+    }
+  }
 
   if (envchain_set_keychain(keychain_target) != 0) {
-    return 1;
+    rc = 1;
+    goto cleanup;
   }
 
   if (argc < 1) envchain_abort_with_help();
 
   if (strcmp(argv[0], "--set") == 0 || strcmp(argv[0], "-s") == 0) {
     argv++; argc--;
-    return envchain_set(argc, argv);
+    rc = envchain_set(argc, argv);
+    goto cleanup;
   }
   else if (strcmp(argv[0], "--list") == 0 || strcmp(argv[0], "-l") == 0) {
     argv++; argc--;
-    return envchain_list(argc, argv);
+    rc = envchain_list(argc, argv);
+    goto cleanup;
   }
   else if (strcmp(argv[0], "--unset") == 0) {
     argv++; argc--;
-    return envchain_unset(argc, argv);
+    rc = envchain_unset(argc, argv);
+    goto cleanup;
   }
   else if (strcmp(argv[0], "--set-access") == 0) {
     argv++; argc--;
-    return envchain_set_access(argc, argv);
+    rc = envchain_set_access(argc, argv);
+    goto cleanup;
   }
   else if (argv[0][0] == '-') {
     fprintf(stderr, "Unknown option %s\n", argv[0]);
-    return 2;
+    rc = 2;
+    goto cleanup;
   }
   else {
-    return envchain_exec(argc, argv);
+    rc = envchain_exec(argc, argv);
+    goto cleanup;
   }
+
+cleanup:
+  if (auto_keychain_target != NULL) free(auto_keychain_target);
+  if (auto_namespace != NULL) free(auto_namespace);
+  return rc;
 }
